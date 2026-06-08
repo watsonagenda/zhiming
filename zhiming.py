@@ -2,19 +2,23 @@
 """
 ZhiMing (知明) — AI Agent Self-Awareness Toolkit
 
-Single-script environment scanner and TOOLS.md renderer.
+Single-script environment scanner and TOOLS.md updater.
 Replaces scan-environment.sh + update-tools.sh + run.sh + demo.py.
 
 Usage:
     python3 zhiming.py --json          # Output JSON to stdout (pipe-friendly)
     python3 zhiming.py --demo          # Human-readable summary
-    python3 zhiming.py                 # Default: scan + write TOOLS.md
+    python3 zhiming.py                 # Default: scan + update TOOLS.md (incremental)
     python3 zhiming.py --force         # Full rebuild, discard user content
     python3 zhiming.py --workspace /path/to/ws  # Target specific workspace
+    python3 zhiming.py --config /path/to/config.json  # Custom config path
+    python3 zhiming.py --skills-dir /path/to/skills   # Custom skills directory
 
 Import-friendly:
     from zhiming import scan_all
-    result = scan_all(workspace="/path/to/ws")
+    result = scan_all(workspace="/path/to/ws",
+                      config_path="/path/to/config.json",
+                      skills_dir_framework="/path/to/skills")
 """
 
 import argparse
@@ -31,8 +35,8 @@ from datetime import datetime, timezone
 # Constants
 # ─────────────────────────────────────────────────────────────
 
-OPENCLAW_JSON = os.path.expanduser("~/.openclaw/openclaw.json")
-SKILLS_DIR_FRAMEWORK = os.path.expanduser("~/.openclaw/skills")
+_DEFAULT_OPENCLAW_JSON = os.path.expanduser("~/.openclaw/openclaw.json")
+_DEFAULT_SKILLS_DIR = os.path.expanduser("~/.openclaw/skills")
 DEFAULT_WORKSPACE = os.environ.get(
     "OPENCLAW_WORKSPACE", os.path.expanduser("~/.openclaw/workspace")
 )
@@ -76,8 +80,6 @@ CLI_TOOLS_DEF = [
     {"name": "fd", "extract": r"(\d+\.\d+\.\d+)"},
     {"name": "bat", "extract": r"(\d+\.\d+\.\d+)"},
 ]
-
-CACHE_TTL = 300  # 5 minutes
 
 
 # ─────────────────────────────────────────────────────────────
@@ -202,9 +204,14 @@ def scan_api_keys() -> list[dict]:
     return result
 
 
-def scan_model_providers() -> list[dict]:
-    """Dimension 3: Model providers from openclaw.json."""
-    cfg = _load_json(OPENCLAW_JSON)
+def scan_model_providers(config_path: str | None = None) -> list[dict]:
+    """Dimension 3: Model providers from config JSON.
+
+    Args:
+        config_path: Path to config JSON (default: ~/.openclaw/openclaw.json)
+    """
+    path = config_path or _DEFAULT_OPENCLAW_JSON
+    cfg = _load_json(path)
     providers = cfg.get("models", {}).get("providers", {})
     result = []
     for name, p in providers.items():
@@ -218,19 +225,31 @@ def scan_model_providers() -> list[dict]:
     return result
 
 
-def scan_skills(workspace: str) -> list[dict]:
-    """Dimension 4: Installed skills with enabled status."""
-    cfg = _load_json(OPENCLAW_JSON)
+def scan_skills(
+    workspace: str,
+    config_path: str | None = None,
+    skills_dir_framework: str | None = None,
+) -> list[dict]:
+    """Dimension 4: Installed skills with enabled status.
+
+    Args:
+        workspace: Target workspace path.
+        config_path: Path to config JSON (default: ~/.openclaw/openclaw.json)
+        skills_dir_framework: Framework skills directory (default: ~/.openclaw/skills)
+    """
+    path = config_path or _DEFAULT_OPENCLAW_JSON
+    skills_dir = skills_dir_framework or _DEFAULT_SKILLS_DIR
+    cfg = _load_json(path)
     entries = cfg.get("skills", {}).get("entries", {})
     status_map = {n: str(e.get("enabled", False)).lower() for n, e in entries.items()}
 
     result = []
-    for skills_dir in [SKILLS_DIR_FRAMEWORK, os.path.join(workspace, "skills")]:
-        if not os.path.isdir(skills_dir):
+    for sd in [skills_dir, os.path.join(workspace, "skills")]:
+        if not os.path.isdir(sd):
             continue
         try:
-            for entry in sorted(os.listdir(skills_dir)):
-                skill_path = os.path.join(skills_dir, entry)
+            for entry in sorted(os.listdir(sd)):
+                skill_path = os.path.join(sd, entry)
                 if not os.path.isdir(skill_path):
                     continue
                 skill_md = os.path.join(skill_path, "SKILL.md")
@@ -251,9 +270,14 @@ def scan_skills(workspace: str) -> list[dict]:
     return result
 
 
-def scan_channels() -> list[dict]:
-    """Dimension 5: Communication channels."""
-    cfg = _load_json(OPENCLAW_JSON)
+def scan_channels(config_path: str | None = None) -> list[dict]:
+    """Dimension 5: Communication channels.
+
+    Args:
+        config_path: Path to config JSON (default: ~/.openclaw/openclaw.json)
+    """
+    path = config_path or _DEFAULT_OPENCLAW_JSON
+    cfg = _load_json(path)
     result = []
     for name, ch in cfg.get("channels", {}).items():
         result.append({
@@ -318,27 +342,35 @@ def scan_workspace_files(workspace: str) -> list[dict]:
 # Orchestration
 # ─────────────────────────────────────────────────────────────
 
-def scan_all(workspace: str | None = None) -> dict:
+def scan_all(
+    workspace: str | None = None,
+    config_path: str | None = None,
+    skills_dir_framework: str | None = None,
+) -> dict:
     """Run all 7 scan dimensions and return a unified result dict.
+
+    Args:
+        workspace: Target workspace path.
+        config_path: Path to config JSON (default: ~/.openclaw/openclaw.json)
+        skills_dir_framework: Framework skills directory (default: ~/.openclaw/skills)
 
     Can be imported: from zhiming import scan_all
     """
     ws = workspace or DEFAULT_WORKSPACE
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-    # --- Execute all scans ---
-    # These are ordered and can run sequentially — the CLI tools dimension
-    # already does its own internal concurrency. Scan functions are I/O-bound
-    # and lightweight; keeping iteration order is preferred over parallelism
-    # here for predictable behavior.
     result = {
         "timestamp": ts,
         "workspace": ws,
         "search_tools": scan_search_tools(),
         "api_keys": scan_api_keys(),
-        "model_providers": scan_model_providers(),
-        "skills": scan_skills(ws),
-        "channels": scan_channels(),
+        "model_providers": scan_model_providers(config_path=config_path),
+        "skills": scan_skills(
+            ws,
+            config_path=config_path,
+            skills_dir_framework=skills_dir_framework,
+        ),
+        "channels": scan_channels(config_path=config_path),
         "cli_tools": scan_cli_tools(),
         "workspace_files": scan_workspace_files(ws),
     }
@@ -347,11 +379,124 @@ def scan_all(workspace: str | None = None) -> dict:
 
 
 # ─────────────────────────────────────────────────────────────
+# Diff helper
+# ─────────────────────────────────────────────────────────────
+
+def _compute_diff(old: str, new: str) -> str:
+    """Generate a human-readable change summary between old and new TOOLS.md.
+
+    Compares sections (## headings) and reports added/removed entries,
+    version changes for CLI tools, and status changes for skills.
+    """
+    changes: list[str] = []
+
+    def _parse_sections(content: str) -> dict[str, list[str]]:
+        sections: dict[str, list[str]] = {}
+        current: str | None = None
+        for line in content.split("\n"):
+            if line.startswith("## "):
+                current = line[3:].strip()
+                sections[current] = []
+            elif current is not None:
+                sections[current].append(line)
+        return sections
+
+    def _table_rows(lines: list[str]) -> list[list[str]]:
+        rows: list[list[str]] = []
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("|") and not re.match(r"^\|[-\s]+\|", stripped):
+                cols = [c.strip() for c in stripped.split("|")[1:-1]]
+                if cols:
+                    rows.append(cols)
+        return rows
+
+    def _list_items(lines: list[str]) -> list[str]:
+        items: list[str] = []
+        for line in lines:
+            m = re.match(r"^- `([^`]+)`", line.strip())
+            if m:
+                items.append(m.group(1))
+        return items
+
+    old_sec = _parse_sections(old)
+    new_sec = _parse_sections(new)
+
+    for section in sorted(set(old_sec.keys()) | set(new_sec.keys())):
+        old_rows = _table_rows(old_sec.get(section, []))
+        new_rows = _table_rows(new_sec.get(section, []))
+
+        if not old_rows and not new_rows:
+            # Non-table section (API Keys Detected)
+            old_items = set(_list_items(old_sec.get(section, [])))
+            new_items = set(_list_items(new_sec.get(section, [])))
+            added_keys = new_items - old_items
+            removed_keys = old_items - new_items
+            if added_keys:
+                changes.append(
+                    f"{len(added_keys)} API key added ({', '.join(sorted(added_keys))})"
+                )
+            if removed_keys:
+                changes.append(
+                    f"{len(removed_keys)} API key removed ({', '.join(sorted(removed_keys))})"
+                )
+            continue
+
+        old_names = [r[0] if r else "" for r in old_rows]
+        new_names = [r[0] if r else "" for r in new_rows]
+        added = set(new_names) - set(old_names)
+        removed = set(old_names) - set(new_names)
+
+        changed_ver: list[str] = []
+        if section == "CLI Toolkit":
+            old_ver = {r[0]: r[1] if len(r) > 1 else "" for r in old_rows}
+            new_ver = {r[0]: r[1] if len(r) > 1 else "" for r in new_rows}
+            for name in set(old_names) & set(new_names):
+                if old_ver.get(name) != new_ver.get(name):
+                    changed_ver.append(name)
+
+        status_changed: list[str] = []
+        if section == "Installed Skills":
+            old_status = {r[0]: r[1] if len(r) > 1 else "" for r in old_rows}
+            new_status = {r[0]: r[1] if len(r) > 1 else "" for r in new_rows}
+            for name in set(old_names) & set(new_names):
+                if old_status.get(name) != new_status.get(name):
+                    status_changed.append(name)
+
+        parts: list[str] = []
+        if added:
+            label = "skill" if section == "Installed Skills" else "entry"
+            parts.append(f"{len(added)} {label} added ({', '.join(sorted(added))})")
+        if removed:
+            label = "skill" if section == "Installed Skills" else "entry"
+            parts.append(f"{len(removed)} {label} removed ({', '.join(sorted(removed))})")
+        if changed_ver:
+            parts.append(
+                f"{len(changed_ver)} CLI tools changed version ({', '.join(changed_ver)})"
+            )
+        if status_changed:
+            parts.append(
+                f"{len(status_changed)} skills changed status ({', '.join(status_changed)})"
+            )
+        if parts:
+            changes.append("; ".join(parts))
+
+    if not changes:
+        return "minor formatting changes"
+    return "; ".join(changes)
+
+
+# ─────────────────────────────────────────────────────────────
 # Rendering engine (TOOLS.md)
 # ─────────────────────────────────────────────────────────────
 
 def render_tools_md(data: dict, force: bool, workspace: str) -> str:
-    """Render TOOLS.md Markdown from scan results and write atomically."""
+    """Render TOOLS.md Markdown from scan results and write atomically.
+
+    Incremental update: if target TOOLS.md already exists, compare old and
+    new content (ignoring timestamp line). If identical, skip the write and
+    report "up to date". Otherwise, report a diff summary before writing.
+    """
     ts = data.get("timestamp", "unknown")
 
     L = []
@@ -461,15 +606,36 @@ def render_tools_md(data: dict, force: bool, workspace: str) -> str:
     h("---")
     h("")
 
-    output = "\n".join(L)
+    new_content = "\n".join(L)
+
+    tools_md = os.path.join(workspace, "TOOLS.md")
+
+    # --- Incremental update: compare with existing ---
+    def _strip_ts(content: str) -> str:
+        return re.sub(r"^> Auto-generated:.*\n?", "", content, flags=re.MULTILINE)
+
+    if os.path.exists(tools_md):
+        with open(tools_md) as f:
+            old_content = f.read()
+
+        old_stripped = _strip_ts(old_content)
+        new_stripped = _strip_ts(new_content)
+
+        if old_stripped == new_stripped:
+            print("TOOLS.md is up to date (no changes detected)")
+            return tools_md
+
+        diff_summary = _compute_diff(old_stripped, new_stripped)
+        print(f"TOOLS.md updated: {diff_summary}")
+    else:
+        print("TOOLS.md created")
 
     # --- Atomic write ---
-    tools_md = os.path.join(workspace, "TOOLS.md")
     tmp = tools_md + ".tmp"
 
     os.makedirs(workspace, exist_ok=True)
     with open(tmp, "w") as f:
-        f.write(output)
+        f.write(new_content)
 
     # Preserve user content unless forced
     if not force:
@@ -588,6 +754,16 @@ def main():
         help="Target workspace path (default: $OPENCLAW_WORKSPACE or ~/.openclaw/workspace)",
     )
     parser.add_argument(
+        "--config", "-c",
+        default=None,
+        help="Path to config JSON (default: ~/.openclaw/openclaw.json)",
+    )
+    parser.add_argument(
+        "--skills-dir",
+        default=None,
+        help="Framework skills directory (default: ~/.openclaw/skills)",
+    )
+    parser.add_argument(
         "--demo", "-d",
         action="store_true",
         help="Output a human-readable summary (no file writes)",
@@ -602,17 +778,15 @@ def main():
         action="store_true",
         help="Force full rebuild, discard user content in TOOLS.md",
     )
-    parser.add_argument(
-        "--no-cache",
-        action="store_true",
-        help="Skip cache, force re-scan",
-    )
     args = parser.parse_args()
 
     workspace = args.workspace or DEFAULT_WORKSPACE
-    use_cache = not args.no_cache
 
-    data = scan_all(workspace=workspace, use_cache=use_cache)
+    data = scan_all(
+        workspace=workspace,
+        config_path=args.config,
+        skills_dir_framework=args.skills_dir,
+    )
 
     if args.json:
         print(json.dumps(data, indent=2, ensure_ascii=False))

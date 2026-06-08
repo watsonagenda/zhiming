@@ -2,7 +2,7 @@
 
 > **知明**：取自"自知之明"——让 AI Agent 拥有对自身能力的清醒认知。
 
-一个轻量级工具，用于扫描本地系统环境并生成结构化的 `TOOLS.md` 清单，让 AI Agent 在每个新会话中都能准确了解其可用的 CLI 工具、API 密钥、模型供应商、技能和通信渠道。
+一个轻量级工具，用于扫描本地系统环境并更新结构化的 `TOOLS.md` 清单，让 AI Agent 在每个新会话中都能准确了解其可用的 CLI 工具、API 密钥、模型供应商、技能和通信渠道。
 
 ## 要解决的问题
 
@@ -40,9 +40,17 @@ AI Agent 存在**会话失忆**问题。每次新对话开始时，Agent 完全�
 # 克隆仓库到技能目录
 git clone https://github.com/YOUR_USERNAME/zhiming.git ~/.openclaw/skills/zhiming
 
+# 将 SKILL.md 复制到 zhiming 技能目录并启用
+cp ~/.openclaw/skills/zhiming/SKILL.md ~/.openclaw/skills/zhiming/SKILL.md
+
+# 在配置中启用 zhiming 技能（添加到 skills.entries）：
+#   "zhiming": { "enabled": true }
+
 # 运行首次扫描
 python3 ~/.openclaw/skills/zhiming/zhiming.py
 ```
+
+技能启用后，Agent 框架会自动发现 `SKILL.md`。
 
 ### 验证
 
@@ -53,14 +61,16 @@ python3 ~/.openclaw/skills/zhiming/zhiming.py
 ### CLI 模式
 
 ```bash
-python3 ~/.openclaw/skills/zhiming/zhiming.py             # 扫描 + 写入 TOOLS.md
+python3 ~/.openclaw/skills/zhiming/zhiming.py             # 扫描 + 更新 TOOLS.md
 python3 ~/.openclaw/skills/zhiming/zhiming.py --demo      # 人类友好摘要（不写入文件）
 python3 ~/.openclaw/skills/zhiming/zhiming.py --json      # 原始 JSON 输出到 stdout
 python3 ~/.openclaw/skills/zhiming/zhiming.py --force     # 强制全量重建（丢弃用户内容）
-python3 ~/.openclaw/skills/zhiming/zhiming.py --no-cache  # 强制重新扫描，跳过缓存
 
 # 指定自定义工作区
 python3 ~/.openclaw/skills/zhiming/zhiming.py --workspace /path/to/ws
+
+# 自定义配置 / 技能目录（适配非 OpenClaw 框架）
+python3 ~/.openclaw/skills/zhiming/zhiming.py --config /path/to/config.json --skills-dir /path/to/skills
 ```
 
 ### 手动触发（通过 Agent）
@@ -85,17 +95,18 @@ Agent 会运行扫描并更新 `TOOLS.md`。
 
 ## 扩展设计
 
-- **缓存机制**：扫描结果缓存至 `<workspace>/.zhiming_cache.json`（5 分钟 TTL）。5 分钟内的重复扫描直接返回缓存。使用 `--no-cache` 跳过。
+- **增量更新**：仅当扫描结果与上次不同时才重写 TOOLS.md。内容不变时输出"up to date"并跳过写入，有变化时展示差异摘要。
 - **原子写入**：TOOLS.md 先写 `.tmp` 临时文件，再通过 `os.rename` 原子替换，防止其他进程读到不完整的文件。
 - **并发版本检查**：全部 14 个 CLI 工具（`git`、`docker`、`python3`、`node` 等）的 `--version` 调用通过 `ThreadPoolExecutor` 并发执行（每个 2 秒超时）。最坏情况墙钟时间从 28 秒降至 2 秒。
 - **可导入设计**：`scan_all()` 函数设计为可复用：`from zhiming import scan_all`。
+- **可配置路径**：`--config` 和 `--skills-dir` CLI 选项解耦扫描器与 OpenClaw 默认值，可适配任何使用 JSON 配置和技能目录的 Agent 框架。
 - **面向未来扩展**：每个扫描维度为独立函数。新增维度只需实现一个函数并在 `scan_all()` 中添加一行调用。
 
 ## 项目结构
 
 ```
 zhiming/
-├── zhiming.py                  # 单一入口脚本（扫描器 + 渲染器 + 演示模式）
+├── zhiming.py                  # 单一入口脚本（扫描器 + 更新器 + 演示模式）
 ├── SKILL.md                    # AI Agent 主技能指令
 ├── README.md                   # 英文文档
 ├── README_CN.md                # 本文档（中文）
@@ -107,6 +118,8 @@ zhiming/
 │   └── detection-matrix.md     # 各工具/供应商的检测方法矩阵
 └── .gitignore
 ```
+
+> **依赖说明**：扫描器从 JSON 配置文件中读取技能和渠道配置（默认：`~/.openclaw/openclaw.json`）。使用 `--config` 可指向任意框架的等效配置。扫描器本身零 Python 第三方依赖（仅使用标准库）。
 
 ## 常见问题
 
@@ -123,7 +136,7 @@ zhiming/
 答：可以。`<!-- user:begin -->` 和 `<!-- user:end -->` 标记之间的内容在扫描时会被保留（除非使用 `--force`）。
 
 **问：支持哪些 AI Agent 框架？**
-答：目前在 OpenClaw 上测试验证。扫描逻辑是框架无关的，可适配任何使用 `TOOLS.md` 的 Agent 系统。
+答：默认适配 OpenClaw，但通过 `--config` 和 `--skills-dir` CLI 选项可适配任何使用 JSON 配置和技能目录的 Agent 框架。扫描逻辑本身完全框架无关。
 
 ## 安全
 

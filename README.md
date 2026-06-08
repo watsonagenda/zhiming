@@ -2,7 +2,7 @@
 
 > **知明** (zhī míng): "Know thyself." From the Chinese proverb *自知之明* — the wisdom of knowing oneself.
 
-A lightweight toolkit that scans the local system environment and generates a structured `TOOLS.md` inventory, so AI agents always know exactly which CLI tools, API keys, model providers, skills, and communication channels are available — even in a brand-new session.
+A lightweight toolkit that scans the local system environment and updates a structured `TOOLS.md` inventory, so AI agents always know exactly which CLI tools, API keys, model providers, skills, and communication channels are available — even in a brand-new session.
 
 ## The Problem
 
@@ -40,9 +40,17 @@ ZhiMing solves this by giving the agent **self-awareness** — a single source o
 # Clone the repository into your skills directory
 git clone https://github.com/YOUR_USERNAME/zhiming.git ~/.openclaw/skills/zhiming
 
+# Copy SKILL.md to the zhiming skill directory and enable it
+cp ~/.openclaw/skills/zhiming/SKILL.md ~/.openclaw/skills/zhiming/SKILL.md
+
+# Enable the zhiming skill in your config (add to skills.entries):
+#   "zhiming": { "enabled": true }
+
 # Run the first scan
 python3 ~/.openclaw/skills/zhiming/zhiming.py
 ```
+
+The agent framework will discover `SKILL.md` automatically once the skill is enabled in the config.
 
 ### Verify
 
@@ -53,14 +61,16 @@ After installation, your workspace `TOOLS.md` should be populated with a full en
 ### CLI Modes
 
 ```bash
-python3 ~/.openclaw/skills/zhiming/zhiming.py             # scan + write TOOLS.md
+python3 ~/.openclaw/skills/zhiming/zhiming.py             # scan + update TOOLS.md
 python3 ~/.openclaw/skills/zhiming/zhiming.py --demo      # human-readable summary (no file writes)
 python3 ~/.openclaw/skills/zhiming/zhiming.py --json      # raw JSON to stdout (pipe-friendly)
 python3 ~/.openclaw/skills/zhiming/zhiming.py --force     # full rebuild, discard user content
-python3 ~/.openclaw/skills/zhiming/zhiming.py --no-cache  # force re-scan, skip cache
 
 # Custom workspace
 python3 ~/.openclaw/skills/zhiming/zhiming.py --workspace /path/to/ws
+
+# Custom config / skills directory (for non-OpenClaw frameworks)
+python3 ~/.openclaw/skills/zhiming/zhiming.py --config /path/to/config.json --skills-dir /path/to/skills
 ```
 
 ### Manual Trigger (via Agent)
@@ -85,17 +95,18 @@ The agent automatically suggests a scan when it encounters:
 
 ## Extension Design
 
-- **Caching**: Scan results cached in `<workspace>/.zhiming_cache.json` (5-minute TTL). Subsequent scans within 5 minutes return instantly. Use `--no-cache` to bypass.
+- **Incremental updates**: TOOLS.md is only rewritten when scan results differ from the previous run. Identical runs print "up to date" and skip the write entirely, with a human-readable diff summary shown on changes.
 - **Atomic writes**: TOOLS.md is written to a `.tmp` file first, then `os.rename`-d into place. No other process will ever read a partially-written file.
 - **Concurrent version checks**: All 14 CLI tools (`git`, `docker`, `python3`, `node`, etc.) have their `--version` calls executed in parallel via `ThreadPoolExecutor` (2s timeout each). Worst-case wall time drops from 28 seconds to 2 seconds.
 - **Import-friendly**: The `scan_all()` function is designed for reuse: `from zhiming import scan_all`.
+- **Configurable paths**: `--config` and `--skills-dir` CLI options decouple the scanner from OpenClaw defaults, enabling use with any agent framework that uses a JSON config and skills directory.
 - **Future skill scaling**: Each scan dimension is an independent function. Adding a new dimension is a matter of implementing one function and adding one line to `scan_all()`.
 
 ## Project Structure
 
 ```
 zhiming/
-├── zhiming.py                  # Single entry script (scanner + renderer + demo)
+├── zhiming.py                  # Single entry script (scanner + updater + demo)
 ├── SKILL.md                    # Main skill instructions for the AI agent
 ├── README.md                   # This file
 ├── README_CN.md                # 中文文档
@@ -107,6 +118,8 @@ zhiming/
 │   └── detection-matrix.md     # Detection methods for each tool/provider
 └── .gitignore
 ```
+
+> **Dependency**: The scanner reads skills and channel configuration from a JSON config file (default: `~/.openclaw/openclaw.json`). Use `--config` to point to any framework's equivalent config. The scanner itself has zero Python dependencies beyond the standard library.
 
 ## FAQ
 
@@ -123,7 +136,7 @@ A: No. Scans only run when explicitly triggered by the user or when the agent de
 A: Yes. Content between `<!-- user:begin -->` and `<!-- user:end -->` markers is preserved across scans (unless `--force` is used).
 
 **Q: Which AI agent frameworks are supported?**
-A: Currently tested with OpenClaw. The scan logic is framework-agnostic and can be adapted to any agent system that uses a `TOOLS.md` file.
+A: Defaults are configured for OpenClaw, but the `--config` and `--skills-dir` CLI options allow the scanner to work with any agent framework that uses a JSON config and skills directory. The scan logic itself is fully framework-agnostic.
 
 ## Security
 

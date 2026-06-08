@@ -29,11 +29,10 @@ Scans the local system environment and writes a structured inventory to `TOOLS.m
 ## Usage
 
 ```bash
-python3 ~/.openclaw/skills/zhiming/zhiming.py             # scan + write TOOLS.md
+python3 ~/.openclaw/skills/zhiming/zhiming.py             # scan + update TOOLS.md
 python3 ~/.openclaw/skills/zhiming/zhiming.py --demo      # human-readable summary
 python3 ~/.openclaw/skills/zhiming/zhiming.py --json      # raw JSON to stdout
 python3 ~/.openclaw/skills/zhiming/zhiming.py --force     # full rebuild (discard user content)
-python3 ~/.openclaw/skills/zhiming/zhiming.py --no-cache  # force re-scan, skip cache
 ```
 
 Or specify a custom workspace:
@@ -42,12 +41,19 @@ Or specify a custom workspace:
 python3 ~/.openclaw/skills/zhiming/zhiming.py --workspace /path/to/ws
 ```
 
+For non-OpenClaw frameworks, use `--config` and `--skills-dir`:
+
+```bash
+python3 ~/.openclaw/skills/zhiming/zhiming.py --config /path/to/config.json --skills-dir /path/to/skills
+```
+
 ## Extensions
 
-- **Caching**: Results cached in `<workspace>/.zhiming_cache.json` (5-min TTL).
+- **Incremental updates**: TOOLS.md is only rewritten when scan results differ from the previous run. Identical runs print "up to date" and skip the write.
 - **Atomic writes**: TOOLS.md written via `.tmp` + `os.rename` to avoid partial reads.
 - **Concurrent version checks**: All 14 CLI tools version-checked in parallel (ThreadPoolExecutor, 2s timeout).
 - **Import-friendly**: `from zhiming import scan_all` for use in other scripts.
+- **Configurable paths**: `--config` and `--skills-dir` CLI options for non-OpenClaw frameworks.
 - **User content**: Text between `<!-- user:begin -->` and `<!-- user:end -->` is preserved across scans (unless `--force`).
 
 ## Security
