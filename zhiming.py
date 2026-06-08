@@ -10,7 +10,6 @@ Usage:
     python3 zhiming.py --demo          # Human-readable summary
     python3 zhiming.py                 # Default: scan + write TOOLS.md
     python3 zhiming.py --force         # Full rebuild, discard user content
-    python3 zhiming.py --no-cache      # Skip cache, force re-scan
     python3 zhiming.py --workspace /path/to/ws  # Target specific workspace
 
 Import-friendly:
@@ -25,7 +24,6 @@ import os
 import re
 import subprocess
 import sys
-import time
 from datetime import datetime, timezone
 
 
@@ -320,31 +318,13 @@ def scan_workspace_files(workspace: str) -> list[dict]:
 # Orchestration
 # ─────────────────────────────────────────────────────────────
 
-def scan_all(workspace: str | None = None, use_cache: bool = True) -> dict:
+def scan_all(workspace: str | None = None) -> dict:
     """Run all 7 scan dimensions and return a unified result dict.
 
     Can be imported: from zhiming import scan_all
     """
     ws = workspace or DEFAULT_WORKSPACE
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    # --- Cache check ---
-    cache_path = os.path.join(ws, ".zhiming_cache.json")
-    if use_cache and os.path.exists(cache_path):
-        try:
-            with open(cache_path) as f:
-                cache = json.load(f)
-            cached_ts = cache.get("timestamp", "")
-            if cached_ts:
-                try:
-                    cached_dt = datetime.fromisoformat(cached_ts)
-                    age = (datetime.now(timezone.utc) - cached_dt).total_seconds()
-                    if age < CACHE_TTL:
-                        return cache["result"]
-                except (ValueError, TypeError):
-                    pass
-        except Exception:
-            pass
 
     # --- Execute all scans ---
     # These are ordered and can run sequentially — the CLI tools dimension
@@ -362,15 +342,6 @@ def scan_all(workspace: str | None = None, use_cache: bool = True) -> dict:
         "cli_tools": scan_cli_tools(),
         "workspace_files": scan_workspace_files(ws),
     }
-
-    # --- Write cache ---
-    if use_cache:
-        try:
-            os.makedirs(ws, exist_ok=True)
-            with open(cache_path, "w") as f:
-                json.dump({"timestamp": ts, "result": result}, f, indent=2)
-        except Exception:
-            pass
 
     return result
 
