@@ -1,0 +1,136 @@
+# 知明 (ZhiMing) — AI Agent 自感知工具箱
+
+> **知明**：取自"自知之明"——让 AI Agent 拥有对自身能力的清醒认知。
+
+一个轻量级工具，用于扫描本地系统环境并生成结构化的 `TOOLS.md` 清单，让 AI Agent 在每个新会话中都能准确了解其可用的 CLI 工具、API 密钥、模型供应商、技能和通信渠道。
+
+## 要解决的问题
+
+AI Agent 存在**会话失忆**问题。每次新对话开始时，Agent 完全不知道自己的运行环境中配置了哪些工具和能力，导致：
+
+- **工具降级**：明明配置了 Tavily Search，却用低效的 `web_fetch`
+- **资源浪费**：付费搜索 API 闲置不用
+- **重复沟通**：用户需要在每个会话中说"用 Tavily 搜索"
+- **能力盲区**：已安装的技能、配置的模型供应商、通信渠道全部被忽略
+
+知明的解决方案是赋予 Agent **自知之明**——一份关于自身运行时能力的权威清单。
+
+## 核心能力（7 个扫描维度）
+
+| # | 维度 | 扫描内容 |
+|---|------|---------|
+| 1 | **搜索与检索** | Tavily Search、Agent-Reach、Jina Reader、GitHub CLI（按优先级排序） |
+| 2 | **API 密钥** | 环境变量（`*_API_KEY`、`*_TOKEN`、`*_SECRET`）——仅记录名称，不记录值 |
+| 3 | **模型供应商** | 已配置的 LLM 供应商及其代表模型 |
+| 4 | **已安装技能** | 框架中所有技能，含启用/禁用状态和描述 |
+| 5 | **通信渠道** | 已配置的消息渠道（飞书、微信、Telegram 等） |
+| 6 | **CLI 工具箱** | 系统工具：git、docker、python3、node、ffmpeg、pandoc、curl、jq、sqlite3... |
+| 7 | **工作区文件** | 关键配置文件：AGENTS.md、SOUL.md、MEMORY.md、TOOLS.md、IDENTITY.md... |
+
+## 安装
+
+### 前置条件
+
+- Bash 4+
+- Python 3.8+
+- 支持技能的 AI Agent 框架（如 OpenClaw）
+
+### 快速安装
+
+```bash
+# 克隆仓库到技能目录
+git clone https://github.com/YOUR_USERNAME/zhiming.git ~/.openclaw/skills/zhiming
+
+# 运行首次扫描
+bash ~/.openclaw/skills/zhiming/scripts/scan-environment.sh | \
+  bash ~/.openclaw/skills/zhiming/scripts/update-tools.sh
+```
+
+或使用一键命令：
+
+```bash
+bash ~/.openclaw/skills/zhiming/run.sh
+```
+
+### 验证
+
+安装完成后，工作区 `TOOLS.md` 应该已填充完整的环境清单。
+
+## 使用方法
+
+### 手动触发
+
+告诉 Agent 以下任一指令：
+
+- "扫描环境"
+- "更新工具列表"
+- "刷新环境信息"
+- "我有哪些工具可用？"
+
+Agent 会运行扫描并更新 `TOOLS.md`。
+
+### 被动触发（能力缺口检测）
+
+当 Agent 遇到以下情况时，会自动建议扫描：
+
+- 某个 CLI 工具未在 TOOLS.md 中列出
+- 引用了某个 API 密钥但 TOOLS.md 中无记录
+- 模型供应商已配置但未在清单中
+- 技能已安装但未列出
+
+### 演示模式
+
+```bash
+python3 ~/.openclaw/skills/zhiming/scripts/demo.py
+```
+
+以人类友好的方式展示扫描结果，不写入文件。
+
+## 项目结构
+
+```
+zhiming/
+├── SKILL.md                    # AI Agent 主技能指令
+├── README.md                   # 英文文档
+├── README_CN.md                # 本文档（中文）
+├── REQUIREMENTS.md             # 详细需求文档
+├── CONTRIBUTING.md             # 贡献指南
+├── LICENSE                     # MIT 许可证
+├── run.sh                      # 一键扫描 → 更新
+├── assets/
+│   └── TOOLS-TEMPLATE.md       # TOOLS.md 模板结构
+├── scripts/
+│   ├── scan-environment.sh     # 核心扫描脚本（输出 JSON）
+│   ├── update-tools.sh         # JSON → TOOLS.md 写入器
+│   └── demo.py                 # 人类友好的扫描摘要
+└── references/
+    └── detection-matrix.md     # 各工具/供应商的检测方法矩阵
+```
+
+## 常见问题
+
+**问：会读取我的 API 密钥值吗？**
+答：不会。知明仅记录环境变量*名称*（如 `TAVILY_API_KEY`），绝不读取或输出其值。不读取 `.env` 文件或任何凭据文件。
+
+**问：会扫描我的隐私目录吗？**
+答：不会。敏感目录（`.ssh`、`.aws`、`.kube`）被明确排除在所有扫描之外。
+
+**问：每次会话都会自动运行吗？**
+答：不会。仅在用户明确触发或 Agent 检测到能力缺口时才运行扫描。
+
+**问：可以在 TOOLS.md 中添加自己的备注吗？**
+答：可以。`<!-- user:begin -->` 和 `<!-- user:end -->` 标记之间的内容在扫描时会被保留。
+
+**问：支持哪些 AI Agent 框架？**
+答：目前在 OpenClaw 上测试验证。扫描脚本是框架无关的，可适配任何使用 `TOOLS.md` 的 Agent 系统。
+
+## 安全
+
+- 仅记录 API 密钥**名称**——绝不出入、记录或输出其值
+- 排除敏感目录（`.ssh`、`.aws`、`.kube`、`.env` 文件）
+- 所有结果保留在本地——不发送到任何外部服务
+- 路径使用 `~` 避免泄露用户名
+
+## 开源协议
+
+MIT — 详见 [LICENSE](./LICENSE)。
