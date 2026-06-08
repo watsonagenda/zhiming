@@ -35,20 +35,151 @@ from datetime import datetime, timezone
 # Constants
 # ─────────────────────────────────────────────────────────────
 
-_DEFAULT_OPENCLAW_JSON = os.path.expanduser("~/.openclaw/openclaw.json")
-_DEFAULT_SKILLS_DIR = os.path.expanduser("~/.openclaw/skills")
-DEFAULT_WORKSPACE = os.environ.get(
-    "OPENCLAW_WORKSPACE", os.path.expanduser("~/.openclaw/workspace")
-)
-
 SKIP_KEY_PREFIXES = (
     "SECURITY_", "OAUTH_", "PRIVATE_", "CERT_", "KEYCHAIN_", "GATEWAY_",
 )
 
-WS_FILES = [
-    "AGENTS.md", "SOUL.md", "MEMORY.md", "TOOLS.md",
-    "USER.md", "DREAMS.md", "IDENTITY.md",
-]
+# Framework default paths (checked in priority order for auto-detection)
+FRAMEWORK_DEFAULTS = {
+    "openclaw": {
+        "config": "~/.openclaw/openclaw.json",
+        "skills": "~/.openclaw/skills",
+        "workspace": "~/.openclaw/workspace",
+    },
+    "claude": {
+        "config": "~/.claude/claude_desktop_config.json",
+        "skills": "~/.claude/skills",
+        "workspace": "~/.claude/workspace",
+    },
+    "cline": {
+        "config": "~/.cline/config.json",
+        "skills": "~/.cline/skills",
+        "workspace": "~/.cline/workspace",
+    },
+    "continue": {
+        "config": "~/.continue/config.json",
+        "skills": "~/.continue/skills",
+        "workspace": "~/.continue/workspace",
+    },
+    "cursor": {
+        "config": "~/.cursor/mcp.json",
+        "skills": "~/.cursor/skills",
+        "workspace": "~/.cursor/workspace",
+    },
+}
+
+SCHEMA_MAP = {
+    "openclaw": {
+        "model_providers_path": ["models", "providers"],
+        "provider_api_key": "api",
+        "provider_models_key": "models",
+        "model_id_key": "id",
+        "skills_entries_path": ["skills", "entries"],
+        "skill_enabled_key": "enabled",
+        "channels_path": ["channels"],
+        "channel_enabled_key": "enabled",
+        "workspace_files": ["AGENTS.md", "SOUL.md", "DREAMS.md", "IDENTITY.md",
+                           "MEMORY.md", "USER.md", "TOOLS.md"],
+    },
+    "claude": {
+        "model_providers_path": ["providers"],
+        "provider_api_key": "api",
+        "provider_models_key": "models",
+        "model_id_key": "id",
+        "skills_entries_path": ["skills"],
+        "skill_enabled_key": "enabled",
+        "channels_path": None,
+        "channel_enabled_key": None,
+        "workspace_files": ["CLAUDE.md", "MEMORY.md", "TOOLS.md"],
+    },
+    "cline": {
+        "model_providers_path": ["apiProviders"],
+        "provider_api_key": "apiProvider",
+        "provider_models_key": "models",
+        "model_id_key": "id",
+        "skills_entries_path": None,
+        "skill_enabled_key": None,
+        "channels_path": None,
+        "channel_enabled_key": None,
+        "workspace_files": ["TOOLS.md"],
+    },
+    "continue": {
+        "model_providers_path": ["models"],
+        "provider_api_key": "provider",
+        "provider_models_key": "models",
+        "model_id_key": "model",
+        "skills_entries_path": None,
+        "skill_enabled_key": None,
+        "channels_path": None,
+        "channel_enabled_key": None,
+        "workspace_files": ["TOOLS.md"],
+    },
+    "cursor": {
+        "model_providers_path": None,
+        "provider_api_key": None,
+        "provider_models_key": None,
+        "model_id_key": None,
+        "skills_entries_path": None,
+        "skill_enabled_key": None,
+        "channels_path": None,
+        "channel_enabled_key": None,
+        "workspace_files": [".cursorrules", "TOOLS.md"],
+    },
+    "generic": {
+        "model_providers_path": ["providers"],
+        "provider_api_key": "api",
+        "provider_models_key": "models",
+        "model_id_key": "id",
+        "skills_entries_path": ["skills"],
+        "skill_enabled_key": "enabled",
+        "channels_path": ["channels"],
+        "channel_enabled_key": "enabled",
+        "workspace_files": ["TOOLS.md"],
+    },
+}
+
+
+def _deep_get(d: dict, keys: list, default=None):
+    """安全访问嵌套 dict，keys 为 key 路径列表。"""
+    for key in keys:
+        if isinstance(d, dict):
+            d = d.get(key)
+        else:
+            return default
+        if d is None:
+            return default
+    return d
+
+
+def _infer_framework_from_path(config_path: str) -> str | None:
+    """Try to infer framework name from config path."""
+    expanded = os.path.expanduser(config_path)
+    for fw_name, fw_info in FRAMEWORK_DEFAULTS.items():
+        if expanded == os.path.expanduser(fw_info["config"]):
+            return fw_name
+    return None
+
+
+def _detect_framework() -> tuple:
+    """Auto-detect current framework by checking known config file paths.
+
+    Returns:
+        (framework_name, config_path, skills_dir, workspace)
+
+    Raises:
+        RuntimeError: No known framework config file found.
+    """
+    for fw_name, fw_info in FRAMEWORK_DEFAULTS.items():
+        cfg = os.path.expanduser(fw_info["config"])
+        if os.path.isfile(cfg):
+            skills = os.path.expanduser(fw_info["skills"])
+            ws = os.path.expanduser(fw_info["workspace"])
+            return (fw_name, cfg, skills, ws)
+
+    raise RuntimeError(
+        "No supported framework detected. "
+        "Please specify paths manually with --config / --skills-dir / --workspace."
+    )
 
 KEY_HINTS = {
     "Tavily Search": "TAVILY_API_KEY",
@@ -204,22 +335,39 @@ def scan_api_keys() -> list[dict]:
     return result
 
 
-def scan_model_providers(config_path: str | None = None) -> list[dict]:
+def scan_model_providers(config_path: str, schema: dict) -> list[dict]:
     """Dimension 3: Model providers from config JSON.
 
     Args:
-        config_path: Path to config JSON (default: ~/.openclaw/openclaw.json)
+        config_path: Path to config JSON.
+        schema: Schema mapping for this framework (from SCHEMA_MAP).
     """
-    path = config_path or _DEFAULT_OPENCLAW_JSON
-    cfg = _load_json(path)
-    providers = cfg.get("models", {}).get("providers", {})
+    providers_path = schema.get("model_providers_path")
+    if providers_path is None:
+        return []
+
+    cfg = _load_json(config_path)
+    providers = _deep_get(cfg, providers_path, default={})
+    if not isinstance(providers, dict):
+        return []
+
+    api_key = schema.get("provider_api_key", "api")
+    models_key = schema.get("provider_models_key", "models")
+    model_id_key = schema.get("model_id_key", "id")
+
     result = []
     for name, p in providers.items():
-        models = p.get("models", [])
-        rep = ", ".join([m.get("id", "?") for m in models[:3]])
+        if not isinstance(p, dict):
+            continue
+        models = p.get(models_key, [])
+        if not isinstance(models, list):
+            models = []
+        rep = ", ".join(
+            [m.get(model_id_key, "?") for m in models[:3] if isinstance(m, dict)]
+        )
         result.append({
             "provider": name,
-            "api_type": p.get("api", "unknown"),
+            "api_type": p.get(api_key, "unknown"),
             "representative_models": rep,
         })
     return result
@@ -229,23 +377,38 @@ def scan_skills(
     workspace: str,
     config_path: str | None = None,
     skills_dir_framework: str | None = None,
+    schema: dict | None = None,
 ) -> list[dict]:
     """Dimension 4: Installed skills with enabled status.
 
     Args:
         workspace: Target workspace path.
-        config_path: Path to config JSON (default: ~/.openclaw/openclaw.json)
-        skills_dir_framework: Framework skills directory (default: ~/.openclaw/skills)
+        config_path: Path to config JSON.
+        skills_dir_framework: Framework skills directory.
+        schema: Schema mapping for this framework (from SCHEMA_MAP).
     """
-    path = config_path or _DEFAULT_OPENCLAW_JSON
-    skills_dir = skills_dir_framework or _DEFAULT_SKILLS_DIR
-    cfg = _load_json(path)
-    entries = cfg.get("skills", {}).get("entries", {})
-    status_map = {n: str(e.get("enabled", False)).lower() for n, e in entries.items()}
+    if schema is None:
+        schema = SCHEMA_MAP["generic"]
+
+    skills_entries_path = schema.get("skills_entries_path")
+    skill_enabled_key = schema.get("skill_enabled_key")
+
+    status_map: dict[str, str] = {}
+    if skills_entries_path is not None and config_path is not None:
+        cfg = _load_json(config_path)
+        entries = _deep_get(cfg, skills_entries_path, default={})
+        if isinstance(entries, dict) and skill_enabled_key is not None:
+            status_map = {
+                n: str(e.get(skill_enabled_key, False)).lower()
+                for n, e in entries.items()
+                if isinstance(e, dict)
+            }
+
+    skills_dir = skills_dir_framework or ""
 
     result = []
     for sd in [skills_dir, os.path.join(workspace, "skills")]:
-        if not os.path.isdir(sd):
+        if not sd or not os.path.isdir(sd):
             continue
         try:
             for entry in sorted(os.listdir(sd)):
@@ -259,31 +422,56 @@ def scan_skills(
                         desc = _parse_skill_md(skill_md)
                     except Exception:
                         pass
+                enabled = (
+                    status_map.get(entry, "unknown")
+                    if skills_entries_path is not None
+                    else "true"
+                )
                 result.append({
                     "name": entry,
                     "path": skill_path,
                     "description": desc,
-                    "enabled": status_map.get(entry, "unknown"),
+                    "enabled": enabled,
                 })
         except Exception:
             pass
     return result
 
 
-def scan_channels(config_path: str | None = None) -> list[dict]:
+def scan_channels(config_path: str | None = None, schema: dict | None = None) -> list[dict]:
     """Dimension 5: Communication channels.
 
     Args:
-        config_path: Path to config JSON (default: ~/.openclaw/openclaw.json)
+        config_path: Path to config JSON.
+        schema: Schema mapping for this framework (from SCHEMA_MAP).
     """
-    path = config_path or _DEFAULT_OPENCLAW_JSON
+    if schema is None:
+        schema = SCHEMA_MAP["generic"]
+
+    channels_path = schema.get("channels_path")
+    if channels_path is None:
+        return []
+
+    channel_enabled_key = schema.get("channel_enabled_key", "enabled")
+
+    path = config_path or ""
     cfg = _load_json(path)
+    channels = _deep_get(cfg, channels_path, default={})
+    if not isinstance(channels, dict):
+        return []
+
     result = []
-    for name, ch in cfg.get("channels", {}).items():
-        result.append({
-            "name": name,
-            "enabled": bool(ch.get("enabled", False)),
-        })
+    for name, ch in channels.items():
+        if isinstance(ch, dict):
+            result.append({
+                "name": name,
+                "enabled": bool(ch.get(channel_enabled_key, False)),
+            })
+        else:
+            result.append({
+                "name": name,
+                "enabled": bool(ch),
+            })
     return result
 
 
@@ -330,11 +518,13 @@ def scan_cli_tools() -> list[dict]:
     return results
 
 
-def scan_workspace_files(workspace: str) -> list[dict]:
+def scan_workspace_files(workspace: str, files: list[str] | None = None) -> list[dict]:
     """Dimension 7: Workspace file existence."""
+    if files is None:
+        files = ["TOOLS.md"]
     return [
         {"file": f, "exists": os.path.exists(os.path.join(workspace, f))}
-        for f in WS_FILES
+        for f in files
     ]
 
 
@@ -346,33 +536,65 @@ def scan_all(
     workspace: str | None = None,
     config_path: str | None = None,
     skills_dir_framework: str | None = None,
+    framework: str | None = None,
 ) -> dict:
     """Run all 7 scan dimensions and return a unified result dict.
 
     Args:
-        workspace: Target workspace path.
-        config_path: Path to config JSON (default: ~/.openclaw/openclaw.json)
-        skills_dir_framework: Framework skills directory (default: ~/.openclaw/skills)
+        workspace: Target workspace path (auto-detected if not specified).
+        config_path: Path to config JSON (auto-detected if not specified).
+        skills_dir_framework: Framework skills directory (auto-detected if not specified).
+        framework: Explicit framework name; auto-detected from config_path or
+                   filesystem if not specified.
 
     Can be imported: from zhiming import scan_all
     """
-    ws = workspace or DEFAULT_WORKSPACE
+    # ── Resolve framework ──
+    if framework is None:
+        if config_path is not None:
+            framework = _infer_framework_from_path(config_path)
+        if framework is None:
+            framework, detected_config, detected_skills, detected_ws = _detect_framework()
+            if config_path is None:
+                config_path = detected_config
+            if skills_dir_framework is None:
+                skills_dir_framework = detected_skills
+            if workspace is None:
+                workspace = detected_ws
+    else:
+        # Explicit framework: fill in defaults from FRAMEWORK_DEFAULTS
+        fw_defaults = FRAMEWORK_DEFAULTS.get(framework, {})
+        if config_path is None and "config" in fw_defaults:
+            config_path = os.path.expanduser(fw_defaults["config"])
+        if skills_dir_framework is None and "skills" in fw_defaults:
+            skills_dir_framework = os.path.expanduser(fw_defaults["skills"])
+        if workspace is None and "workspace" in fw_defaults:
+            workspace = os.path.expanduser(fw_defaults["workspace"])
+
+    # ── Get schema ──
+    schema = SCHEMA_MAP.get(framework, SCHEMA_MAP["generic"])
+
+    ws = workspace or os.path.expanduser("~")
     ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     result = {
         "timestamp": ts,
         "workspace": ws,
+        "framework": framework,
         "search_tools": scan_search_tools(),
         "api_keys": scan_api_keys(),
-        "model_providers": scan_model_providers(config_path=config_path),
+        "model_providers": scan_model_providers(config_path, schema),
         "skills": scan_skills(
             ws,
             config_path=config_path,
             skills_dir_framework=skills_dir_framework,
+            schema=schema,
         ),
-        "channels": scan_channels(config_path=config_path),
+        "channels": scan_channels(config_path=config_path, schema=schema),
         "cli_tools": scan_cli_tools(),
-        "workspace_files": scan_workspace_files(ws),
+        "workspace_files": scan_workspace_files(
+            ws, schema.get("workspace_files", ["TOOLS.md"])
+        ),
     }
 
     return result
@@ -623,7 +845,7 @@ def render_tools_md(data: dict, force: bool, workspace: str) -> str:
 
         if old_stripped == new_stripped:
             print("TOOLS.md is up to date (no changes detected)")
-            return tools_md
+            return None
 
         diff_summary = _compute_diff(old_stripped, new_stripped)
         print(f"TOOLS.md updated: {diff_summary}")
@@ -751,17 +973,23 @@ def main():
     parser.add_argument(
         "--workspace", "-w",
         default=None,
-        help="Target workspace path (default: $OPENCLAW_WORKSPACE or ~/.openclaw/workspace)",
+        help="Target workspace path (auto-detected if not specified)",
     )
     parser.add_argument(
         "--config", "-c",
         default=None,
-        help="Path to config JSON (default: ~/.openclaw/openclaw.json)",
+        help="Path to config JSON (auto-detected if not specified)",
     )
     parser.add_argument(
         "--skills-dir",
         default=None,
-        help="Framework skills directory (default: ~/.openclaw/skills)",
+        help="Framework skills directory (auto-detected if not specified)",
+    )
+    parser.add_argument(
+        "--framework",
+        default=None,
+        choices=["openclaw", "claude", "cline", "continue", "cursor", "generic"],
+        help="Explicitly specify the framework (auto-detected if not specified)",
     )
     parser.add_argument(
         "--demo", "-d",
@@ -780,12 +1008,11 @@ def main():
     )
     args = parser.parse_args()
 
-    workspace = args.workspace or DEFAULT_WORKSPACE
-
     data = scan_all(
-        workspace=workspace,
+        workspace=args.workspace,
         config_path=args.config,
         skills_dir_framework=args.skills_dir,
+        framework=args.framework,
     )
 
     if args.json:
@@ -793,9 +1020,9 @@ def main():
     elif args.demo:
         print(demo_summary(data))
     else:
-        written = render_tools_md(data, force=args.force, workspace=workspace)
-        lines = len(data.__repr__())  # approximate — just report path
-        print(f"TOOLS.md written: {written}")
+        written = render_tools_md(data, force=args.force, workspace=data["workspace"])
+        if written is not None:
+            print(f"TOOLS.md written: {written}")
 
 
 if __name__ == "__main__":

@@ -3,9 +3,11 @@ name: zhiming
 description: "Scans the local system environment and writes a structured inventory to TOOLS.md, so every new session knows exactly which tools, APIs, models, and skills are available."
 ---
 
-# ZhiMing (知明) — AI Agent Self-Awareness Toolkit
+# zhiming — AI Agent Self-Awareness Toolkit
 
 Scans the local system environment and writes a structured inventory to `TOOLS.md`.
+Framework-agnostic: auto-detects OpenClaw, Claude Code, Cline, Continue, and Cursor,
+with manual overrides via `--config` / `--skills-dir` / `--workspace`.
 
 ## When to Run
 
@@ -20,40 +22,85 @@ Scans the local system environment and writes a structured inventory to `TOOLS.m
 
 1. **Search tools**: tvly, mcporter, jina, gh — detected via `command -v`
 2. **API keys**: env vars matching `*_API_KEY`, `*_TOKEN`, `*_SECRET` (names only, never values)
-3. **Model providers**: parsed from `~/.openclaw/openclaw.json` → `models.providers`, top 3 models each
-4. **Installed skills**: scanned from `~/.openclaw/skills/` and `<workspace>/skills/`, description from SKILL.md frontmatter
-5. **Communication channels**: from `openclaw.json` → `channels`
+3. **Model providers**: parsed from `{config_path}` → providers section, top 3 models each
+4. **Installed skills**: scanned from `{skills_dir}` and `{workspace}/skills/`, description from SKILL.md frontmatter
+5. **Communication channels**: from `{config_path}` → channels section (if supported by framework)
 6. **CLI toolkit**: git, docker, python3, node, ffmpeg, magick, pandoc, curl, wget, jq, sqlite3, rg, fd, bat — concurrent version checks
-7. **Workspace files**: AGENTS.md, SOUL.md, MEMORY.md, TOOLS.md, USER.md, DREAMS.md, IDENTITY.md
+7. **Workspace files**: framework-specific key files (e.g. AGENTS.md, CLAUDE.md, TOOLS.md, .cursorrules)
+
+## Supported Frameworks
+
+| Framework | Config Path | Skills Dir | Workspace | Auto-Detect |
+|-----------|------------|-----------|-----------|:---:|
+| OpenClaw | `~/.openclaw/openclaw.json` | `~/.openclaw/skills` | `~/.openclaw/workspace` | Yes |
+| Claude Code | `~/.claude/claude_desktop_config.json` | `~/.claude/skills` | `~/.claude/workspace` | Yes |
+| Cline | `~/.cline/config.json` | `~/.cline/skills` | `~/.cline/workspace` | Yes |
+| Continue | `~/.continue/config.json` | `~/.continue/skills` | `~/.continue/workspace` | Yes |
+| Cursor | `~/.cursor/mcp.json` | `~/.cursor/skills` | `~/.cursor/workspace` | Yes |
+
+Frameworks are detected automatically by checking for their default config files.
+Use `--framework` to override or `--config` / `--skills-dir` / `--workspace` for custom paths.
 
 ## Usage
 
 ```bash
-python3 ~/.openclaw/skills/zhiming/zhiming.py             # scan + update TOOLS.md
-python3 ~/.openclaw/skills/zhiming/zhiming.py --demo      # human-readable summary
-python3 ~/.openclaw/skills/zhiming/zhiming.py --json      # raw JSON to stdout
-python3 ~/.openclaw/skills/zhiming/zhiming.py --force     # full rebuild (discard user content)
+# Auto-detect framework and scan
+python3 zhiming.py
+
+# Scan + update TOOLS.md
+python3 zhiming.py --workspace /path/to/ws
+
+# Human-readable summary
+python3 zhiming.py --demo
+
+# Raw JSON to stdout
+python3 zhiming.py --json
+
+# Full rebuild (discard user content)
+python3 zhiming.py --force
 ```
 
-Or specify a custom workspace:
+For non-standard paths or unsupported frameworks:
 
 ```bash
-python3 ~/.openclaw/skills/zhiming/zhiming.py --workspace /path/to/ws
+python3 zhiming.py --config /path/to/config.json --skills-dir /path/to/skills --workspace /path/to/ws
 ```
 
-For non-OpenClaw frameworks, use `--config` and `--skills-dir`:
+Explicitly specify a framework to skip auto-detection:
 
 ```bash
-python3 ~/.openclaw/skills/zhiming/zhiming.py --config /path/to/config.json --skills-dir /path/to/skills
+python3 zhiming.py --framework claude
+python3 zhiming.py --framework generic --config /custom/config.json
 ```
+
+## Adding a New Framework
+
+Add an entry to `SCHEMA_MAP` in `zhiming.py`. Each entry defines:
+
+| Key | Type | Description |
+|-----|------|-------------|
+| `model_providers_path` | `list[str]` or `None` | Nested key path to providers in config JSON |
+| `provider_api_key` | `str` | Provider sub-key for API type |
+| `provider_models_key` | `str` | Provider sub-key for model list |
+| `model_id_key` | `str` | Model sub-key for ID |
+| `skills_entries_path` | `list[str]` or `None` | Key path to skills entries; `None` = not supported |
+| `skill_enabled_key` | `str` or `None` | Skill sub-key for enabled flag |
+| `channels_path` | `list[str]` or `None` | Key path to channels; `None` = not supported |
+| `channel_enabled_key` | `str` or `None` | Channel sub-key for enabled flag |
+| `workspace_files` | `list[str]` | Key workspace files to check for existence |
+
+Then add the framework's default paths to `FRAMEWORK_DEFAULTS` (checked in priority order).
+
+Set any path to `None` to skip that scan dimension entirely for the framework.
 
 ## Extensions
 
+- **Auto-detection**: Detects OpenClaw, Claude Code, Cline, Continue, Cursor automatically. Falls back to `--config` / `--skills-dir` / `--workspace` for custom setups.
 - **Incremental updates**: TOOLS.md is only rewritten when scan results differ from the previous run. Identical runs print "up to date" and skip the write.
 - **Atomic writes**: TOOLS.md written via `.tmp` + `os.rename` to avoid partial reads.
 - **Concurrent version checks**: All 14 CLI tools version-checked in parallel (ThreadPoolExecutor, 2s timeout).
 - **Import-friendly**: `from zhiming import scan_all` for use in other scripts.
-- **Configurable paths**: `--config` and `--skills-dir` CLI options for non-OpenClaw frameworks.
+- **Pluggable schema**: `SCHEMA_MAP` defines JSON navigation paths per framework, making it trivial to add new Agent frameworks.
 - **User content**: Text between `<!-- user:begin -->` and `<!-- user:end -->` is preserved across scans (unless `--force`).
 
 ## Security

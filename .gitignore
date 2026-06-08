@@ -34,3 +34,5 @@ build/
 # Environment files
 .env
 .env.*
+test_workspace/
+test_ws1/
