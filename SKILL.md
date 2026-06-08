@@ -13,7 +13,7 @@ with manual overrides via `--config` / `--skills-dir` / `--workspace`.
 
 | Trigger | Condition |
 |---------|-----------|
-| Manual | User says "scan environment", "update tools", "refresh environment", etc. |
+| Manual | User says "scan environment", "update tools", "refresh environment", "扫描环境", "更新工具", "刷新环境", etc. |
 | Gap detected | Agent tries to use a tool/API not in TOOLS.md and fails or gets confused |
 
 **Do NOT run:** every session start, timed schedules, or normal task execution.

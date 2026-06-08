@@ -729,7 +729,7 @@ def render_tools_md(data: dict, force: bool, workspace: str) -> str:
     h("# Tools & Environment")
     h("")
     h(f"> Auto-generated: {ts} | zhiming v1.1")
-    h('> To refresh: say "scan environment"')
+    h('> To refresh: say "scan environment" or "扫描环境"')
     h("")
 
     # --- Search & Retrieval ---
