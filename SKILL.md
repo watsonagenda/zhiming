@@ -13,7 +13,7 @@ with manual overrides via `--config` / `--skills-dir` / `--workspace`.
 
 | Trigger | Condition |
 |---------|-----------|
-| Intent | User expresses intent to **update, refresh, scan, or check the current environment**, the local tool inventory, TOOLS.md, or "what's installed / available". Language: Chinese or English, any natural phrasing. |
+| Intent | User wants to **update / refresh / scan the environment** or local tool list. Natural phrasing such as: "扫描一下环境", "更新工具", "刷新", "帮我看看现在装了哪些东西", "检查下环境", "更新 TOOLS.md", "scan the environment", "refresh tools", "what's available", "check my setup". |
 | Gap detected | Agent tries to use a tool/API not in TOOLS.md and fails or gets confused |
 
 **Do NOT run:** every session start, timed schedules, or normal task execution.
