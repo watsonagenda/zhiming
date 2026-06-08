@@ -31,7 +31,6 @@ AI Agent 存在**会话失忆**问题。每次新对话开始时，Agent 完全�
 
 ### 前置条件
 
-- Bash 4+
 - Python 3.8+
 - 支持技能的 AI Agent 框架（如 OpenClaw）
 
@@ -42,14 +41,7 @@ AI Agent 存在**会话失忆**问题。每次新对话开始时，Agent 完全�
 git clone https://github.com/YOUR_USERNAME/zhiming.git ~/.openclaw/skills/zhiming
 
 # 运行首次扫描
-bash ~/.openclaw/skills/zhiming/scripts/scan-environment.sh | \
-  bash ~/.openclaw/skills/zhiming/scripts/update-tools.sh
-```
-
-或使用一键命令：
-
-```bash
-bash ~/.openclaw/skills/zhiming/run.sh
+python3 ~/.openclaw/skills/zhiming/zhiming.py
 ```
 
 ### 验证
@@ -58,7 +50,20 @@ bash ~/.openclaw/skills/zhiming/run.sh
 
 ## 使用方法
 
-### 手动触发
+### CLI 模式
+
+```bash
+python3 ~/.openclaw/skills/zhiming/zhiming.py             # 扫描 + 写入 TOOLS.md
+python3 ~/.openclaw/skills/zhiming/zhiming.py --demo      # 人类友好摘要（不写入文件）
+python3 ~/.openclaw/skills/zhiming/zhiming.py --json      # 原始 JSON 输出到 stdout
+python3 ~/.openclaw/skills/zhiming/zhiming.py --force     # 强制全量重建（丢弃用户内容）
+python3 ~/.openclaw/skills/zhiming/zhiming.py --no-cache  # 强制重新扫描，跳过缓存
+
+# 指定自定义工作区
+python3 ~/.openclaw/skills/zhiming/zhiming.py --workspace /path/to/ws
+```
+
+### 手动触发（通过 Agent）
 
 告诉 Agent 以下任一指令：
 
@@ -78,33 +83,29 @@ Agent 会运行扫描并更新 `TOOLS.md`。
 - 模型供应商已配置但未在清单中
 - 技能已安装但未列出
 
-### 演示模式
+## 扩展设计
 
-```bash
-python3 ~/.openclaw/skills/zhiming/scripts/demo.py
-```
-
-以人类友好的方式展示扫描结果，不写入文件。
+- **缓存机制**：扫描结果缓存至 `<workspace>/.zhiming_cache.json`（5 分钟 TTL）。5 分钟内的重复扫描直接返回缓存。使用 `--no-cache` 跳过。
+- **原子写入**：TOOLS.md 先写 `.tmp` 临时文件，再通过 `os.rename` 原子替换，防止其他进程读到不完整的文件。
+- **并发版本检查**：全部 14 个 CLI 工具（`git`、`docker`、`python3`、`node` 等）的 `--version` 调用通过 `ThreadPoolExecutor` 并发执行（每个 2 秒超时）。最坏情况墙钟时间从 28 秒降至 2 秒。
+- **可导入设计**：`scan_all()` 函数设计为可复用：`from zhiming import scan_all`。
+- **面向未来扩展**：每个扫描维度为独立函数。新增维度只需实现一个函数并在 `scan_all()` 中添加一行调用。
 
 ## 项目结构
 
 ```
 zhiming/
+├── zhiming.py                  # 单一入口脚本（扫描器 + 渲染器 + 演示模式）
 ├── SKILL.md                    # AI Agent 主技能指令
 ├── README.md                   # 英文文档
 ├── README_CN.md                # 本文档（中文）
-├── REQUIREMENTS.md             # 详细需求文档
 ├── CONTRIBUTING.md             # 贡献指南
 ├── LICENSE                     # MIT 许可证
-├── run.sh                      # 一键扫描 → 更新
 ├── assets/
 │   └── TOOLS-TEMPLATE.md       # TOOLS.md 模板结构
-├── scripts/
-│   ├── scan-environment.sh     # 核心扫描脚本（输出 JSON）
-│   ├── update-tools.sh         # JSON → TOOLS.md 写入器
-│   └── demo.py                 # 人类友好的扫描摘要
-└── references/
-    └── detection-matrix.md     # 各工具/供应商的检测方法矩阵
+├── references/
+│   └── detection-matrix.md     # 各工具/供应商的检测方法矩阵
+└── .gitignore
 ```
 
 ## 常见问题
@@ -119,14 +120,14 @@ zhiming/
 答：不会。仅在用户明确触发或 Agent 检测到能力缺口时才运行扫描。
 
 **问：可以在 TOOLS.md 中添加自己的备注吗？**
-答：可以。`<!-- user:begin -->` 和 `<!-- user:end -->` 标记之间的内容在扫描时会被保留。
+答：可以。`<!-- user:begin -->` 和 `<!-- user:end -->` 标记之间的内容在扫描时会被保留（除非使用 `--force`）。
 
 **问：支持哪些 AI Agent 框架？**
-答：目前在 OpenClaw 上测试验证。扫描脚本是框架无关的，可适配任何使用 `TOOLS.md` 的 Agent 系统。
+答：目前在 OpenClaw 上测试验证。扫描逻辑是框架无关的，可适配任何使用 `TOOLS.md` 的 Agent 系统。
 
 ## 安全
 
-- 仅记录 API 密钥**名称**——绝不出入、记录或输出其值
+- 仅记录 API 密钥**名称**——绝不读取、记录或输出其值
 - 排除敏感目录（`.ssh`、`.aws`、`.kube`、`.env` 文件）
 - 所有结果保留在本地——不发送到任何外部服务
 - 路径使用 `~` 避免泄露用户名

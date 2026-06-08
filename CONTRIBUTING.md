@@ -26,32 +26,29 @@ Have an idea for a new scan dimension or capability? Open an issue with the `enh
 1. Fork the repository
 2. Create a feature branch: `git checkout -b feature/my-feature`
 3. Make your changes
-4. Ensure scripts are shellcheck-clean: `shellcheck scripts/*.sh`
-5. Test on your local environment
-6. Commit with a descriptive message
-7. Push and open a PR
+4. Test on your local environment: `python3 zhiming.py --demo`
+5. Commit with a descriptive message
+6. Push and open a PR
 
 ### Adding a New Scan Dimension
 
 To add a new scan category:
 
-1. Add detection logic to `scripts/scan-environment.sh` (in the Python block)
-2. Add the corresponding output section to `scripts/update-tools.sh`
-3. Update `references/detection-matrix.md` with detection methods
-4. Update `SKILL.md` with the new dimension documentation
-5. Add template placeholders to `assets/TOOLS-TEMPLATE.md`
+1. Add a `scan_<dimension>()` function to `zhiming.py`
+2. Add the call to `scan_all()`
+3. Add the corresponding render section in `render_tools_md()`
+4. Update `references/detection-matrix.md` with detection methods
+5. Update `SKILL.md` with the new dimension documentation
 
 ### Adding a New Search Tool
 
-1. Add the tool to the `search_tools` list in `scripts/scan-environment.sh`
-2. Add the API key hint to `key_hints` in `scripts/update-tools.sh`
-3. Update the priority table in `SKILL.md`
-4. Add detection info to `references/detection-matrix.md`
+1. Add the tool to `SEARCH_TOOLS_DEF` and `KEY_HINTS` in `zhiming.py`
+2. Update the priority table in `SKILL.md`
+3. Add detection info to `references/detection-matrix.md`
 
 ## Code Style
 
-- **Shell scripts**: Follow [Google Shell Style Guide](https://google.github.io/styleguide/shellguide.html). Use `set -euo pipefail`.
-- **Python**: PEP 8. Keep inline Python in shell scripts minimal — extract to standalone `.py` files when logic exceeds ~50 lines.
+- **Python**: PEP 8. Each scan dimension is an independent function. Keep functions focused and testable.
 - **Markdown**: Use reference-style links where possible. Keep lines under 120 characters.
 
 ## Security Guidelines
@@ -70,17 +67,17 @@ Before submitting a PR, test on a real environment:
 # Clean test
 rm -f ~/.openclaw/workspace/TOOLS.md
 
-# Run scan
-bash scripts/scan-environment.sh > /tmp/scan-output.json
+# Verify JSON output is valid
+python3 zhiming.py --json | python3 -c "import sys,json; json.load(sys.stdin); print('OK')"
 
-# Verify JSON is valid
-python3 -c "import json; json.load(open('/tmp/scan-output.json')); print('OK')"
-
-# Generate TOOLS.md
-bash scripts/scan-environment.sh | bash scripts/update-tools.sh
+# Full scan + TOOLS.md write
+python3 zhiming.py
 
 # Verify TOOLS.md was created
 head -20 ~/.openclaw/workspace/TOOLS.md
+
+# Demo mode
+python3 zhiming.py --demo
 ```
 
 ## License

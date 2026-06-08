@@ -31,7 +31,6 @@ ZhiMing solves this by giving the agent **self-awareness** — a single source o
 
 ### Prerequisites
 
-- Bash 4+
 - Python 3.8+
 - An AI agent framework that supports skills (e.g., OpenClaw)
 
@@ -42,14 +41,7 @@ ZhiMing solves this by giving the agent **self-awareness** — a single source o
 git clone https://github.com/YOUR_USERNAME/zhiming.git ~/.openclaw/skills/zhiming
 
 # Run the first scan
-bash ~/.openclaw/skills/zhiming/scripts/scan-environment.sh | \
-  bash ~/.openclaw/skills/zhiming/scripts/update-tools.sh
-```
-
-Or use the one-liner:
-
-```bash
-bash ~/.openclaw/skills/zhiming/run.sh
+python3 ~/.openclaw/skills/zhiming/zhiming.py
 ```
 
 ### Verify
@@ -58,7 +50,20 @@ After installation, your workspace `TOOLS.md` should be populated with a full en
 
 ## Usage
 
-### Manual Trigger
+### CLI Modes
+
+```bash
+python3 ~/.openclaw/skills/zhiming/zhiming.py             # scan + write TOOLS.md
+python3 ~/.openclaw/skills/zhiming/zhiming.py --demo      # human-readable summary (no file writes)
+python3 ~/.openclaw/skills/zhiming/zhiming.py --json      # raw JSON to stdout (pipe-friendly)
+python3 ~/.openclaw/skills/zhiming/zhiming.py --force     # full rebuild, discard user content
+python3 ~/.openclaw/skills/zhiming/zhiming.py --no-cache  # force re-scan, skip cache
+
+# Custom workspace
+python3 ~/.openclaw/skills/zhiming/zhiming.py --workspace /path/to/ws
+```
+
+### Manual Trigger (via Agent)
 
 Tell your agent any of these:
 
@@ -78,33 +83,29 @@ The agent automatically suggests a scan when it encounters:
 - A model provider configured but missing from inventory
 - A skill installed but not listed
 
-### Demo Mode
+## Extension Design
 
-```bash
-python3 ~/.openclaw/skills/zhiming/scripts/demo.py
-```
-
-Displays a human-friendly summary of scan results without writing files.
+- **Caching**: Scan results cached in `<workspace>/.zhiming_cache.json` (5-minute TTL). Subsequent scans within 5 minutes return instantly. Use `--no-cache` to bypass.
+- **Atomic writes**: TOOLS.md is written to a `.tmp` file first, then `os.rename`-d into place. No other process will ever read a partially-written file.
+- **Concurrent version checks**: All 14 CLI tools (`git`, `docker`, `python3`, `node`, etc.) have their `--version` calls executed in parallel via `ThreadPoolExecutor` (2s timeout each). Worst-case wall time drops from 28 seconds to 2 seconds.
+- **Import-friendly**: The `scan_all()` function is designed for reuse: `from zhiming import scan_all`.
+- **Future skill scaling**: Each scan dimension is an independent function. Adding a new dimension is a matter of implementing one function and adding one line to `scan_all()`.
 
 ## Project Structure
 
 ```
 zhiming/
+├── zhiming.py                  # Single entry script (scanner + renderer + demo)
 ├── SKILL.md                    # Main skill instructions for the AI agent
 ├── README.md                   # This file
 ├── README_CN.md                # 中文文档
-├── REQUIREMENTS.md             # Detailed requirements (Chinese)
 ├── CONTRIBUTING.md             # Contribution guidelines
 ├── LICENSE                     # MIT License
-├── run.sh                      # One-command scan → update
 ├── assets/
 │   └── TOOLS-TEMPLATE.md       # TOOLS.md template structure
-├── scripts/
-│   ├── scan-environment.sh     # Core scanning script (outputs JSON)
-│   ├── update-tools.sh         # JSON → TOOLS.md writer
-│   └── demo.py                 # Human-friendly scan summary
-└── references/
-    └── detection-matrix.md     # Detection methods for each tool/provider
+├── references/
+│   └── detection-matrix.md     # Detection methods for each tool/provider
+└── .gitignore
 ```
 
 ## FAQ
@@ -119,10 +120,10 @@ A: No. Sensitive directories (`.ssh`, `.aws`, `.kube`) are explicitly excluded f
 A: No. Scans only run when explicitly triggered by the user or when the agent detects a gap in its tool knowledge.
 
 **Q: Can I add my own notes to TOOLS.md?**
-A: Yes. Content between `<!-- user:begin -->` and `<!-- user:end -->` markers is preserved across scans.
+A: Yes. Content between `<!-- user:begin -->` and `<!-- user:end -->` markers is preserved across scans (unless `--force` is used).
 
 **Q: Which AI agent frameworks are supported?**
-A: Currently tested with OpenClaw. The scan scripts are framework-agnostic and can be adapted to any agent system that uses a `TOOLS.md` file.
+A: Currently tested with OpenClaw. The scan logic is framework-agnostic and can be adapted to any agent system that uses a `TOOLS.md` file.
 
 ## Security
 
