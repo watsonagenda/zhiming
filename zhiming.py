@@ -292,14 +292,14 @@ def _load_json(path: str):
 
 
 def _load_user_content(tools_md: str) -> str:
-    """Extract user content between <!-- user:begin --> and <!-- user:end -->."""
+    """Extract user content between <!-- zhiming:user:begin --> and <!-- zhiming:user:end -->."""
     if not os.path.exists(tools_md):
         return ""
     try:
         with open(tools_md) as f:
             text = f.read()
         m = re.search(
-            r"<!--\s*user:begin\s*-->.*?<!--\s*user:end\s*-->",
+            r"<!--\s*zhiming:user:begin\s*-->.*?<!--\s*zhiming:user:end\s*-->",
             text, re.DOTALL
         )
         if m:

@@ -101,7 +101,7 @@ Set any path to `None` to skip that scan dimension entirely for the framework.
 - **Concurrent version checks**: All 14 CLI tools version-checked in parallel (ThreadPoolExecutor, 2s timeout).
 - **Import-friendly**: `from zhiming import scan_all` for use in other scripts.
 - **Pluggable schema**: `SCHEMA_MAP` defines JSON navigation paths per framework, making it trivial to add new Agent frameworks.
-- **User content**: Text between `<!-- user:begin -->` and `<!-- user:end -->` is preserved across scans (unless `--force`).
+- **User content**: Text between `<!-- zhiming:user:begin -->` and `<!-- zhiming:user:end -->` is preserved across scans (unless `--force`).
 
 ## Security
 
