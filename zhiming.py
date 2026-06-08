@@ -76,6 +76,8 @@ SCHEMA_MAP = {
         "model_id_key": "id",
         "skills_entries_path": ["skills", "entries"],
         "skill_enabled_key": "enabled",
+        "plugins_entries_path": ["plugins", "entries"],
+        "plugin_enabled_key": "enabled",
         "channels_path": ["channels"],
         "channel_enabled_key": "enabled",
         "workspace_files": ["AGENTS.md", "SOUL.md", "DREAMS.md", "IDENTITY.md",
@@ -132,6 +134,8 @@ SCHEMA_MAP = {
         "model_id_key": "id",
         "skills_entries_path": ["skills"],
         "skill_enabled_key": "enabled",
+        "plugins_entries_path": ["plugins", "entries"],
+        "plugin_enabled_key": "enabled",
         "channels_path": ["channels"],
         "channel_enabled_key": "enabled",
         "workspace_files": ["TOOLS.md"],
@@ -393,16 +397,19 @@ def scan_skills(
     skills_entries_path = schema.get("skills_entries_path")
     skill_enabled_key = schema.get("skill_enabled_key")
 
-    status_map: dict[str, str] = {}
+    # Build status_map: only entries that explicitly have enabled key with True/False.
+    # None means the key was absent; entry not in map means not listed at all.
+    status_map: dict[str, bool | None] = {}
     if skills_entries_path is not None and config_path is not None:
         cfg = _load_json(config_path)
         entries = _deep_get(cfg, skills_entries_path, default={})
         if isinstance(entries, dict) and skill_enabled_key is not None:
-            status_map = {
-                n: str(e.get(skill_enabled_key, False)).lower()
-                for n, e in entries.items()
-                if isinstance(e, dict)
-            }
+            for n, e in entries.items():
+                if isinstance(e, dict):
+                    if skill_enabled_key in e:
+                        status_map[n] = bool(e[skill_enabled_key])
+                    else:
+                        status_map[n] = None  # key absent → implicit
 
     skills_dir = skills_dir_framework or ""
 
@@ -417,16 +424,31 @@ def scan_skills(
                     continue
                 skill_md = os.path.join(skill_path, "SKILL.md")
                 desc = ""
+                has_valid_desc = False
                 if os.path.exists(skill_md):
                     try:
                         desc = _parse_skill_md(skill_md)
+                        has_valid_desc = bool(desc)
                     except Exception:
                         pass
-                enabled = (
-                    status_map.get(entry, "unknown")
-                    if skills_entries_path is not None
-                    else "true"
-                )
+
+                # Determine enabled status:
+                # - "true" / "false": explicitly set in config
+                # - "implicit": not in config or key absent, but SKILL.md has description
+                # - "unknown": not in config or key absent, and no parseable description
+                if skills_entries_path is not None:
+                    raw = status_map.get(entry)
+                    if raw is True:
+                        enabled = "true"
+                    elif raw is False:
+                        enabled = "false"
+                    elif raw is None or raw not in (True, False):
+                        enabled = "implicit" if has_valid_desc else "unknown"
+                    else:
+                        enabled = "implicit" if has_valid_desc else "unknown"
+                else:
+                    enabled = "true"
+
                 result.append({
                     "name": entry,
                     "path": skill_path,
@@ -471,6 +493,43 @@ def scan_channels(config_path: str | None = None, schema: dict | None = None) ->
             result.append({
                 "name": name,
                 "enabled": bool(ch),
+            })
+    return result
+
+
+def scan_plugins(config_path: str | None = None, schema: dict | None = None) -> list[dict]:
+    """Dimension 5b: Plugins from config JSON.
+
+    Args:
+        config_path: Path to config JSON.
+        schema: Schema mapping for this framework (from SCHEMA_MAP).
+    """
+    if schema is None:
+        schema = SCHEMA_MAP["generic"]
+
+    plugins_entries_path = schema.get("plugins_entries_path")
+    if plugins_entries_path is None:
+        return []
+
+    plugin_enabled_key = schema.get("plugin_enabled_key", "enabled")
+
+    path = config_path or ""
+    cfg = _load_json(path)
+    entries = _deep_get(cfg, plugins_entries_path, default={})
+    if not isinstance(entries, dict):
+        return []
+
+    result = []
+    for name, entry in entries.items():
+        if isinstance(entry, dict):
+            result.append({
+                "name": name,
+                "enabled": bool(entry.get(plugin_enabled_key, False)),
+            })
+        else:
+            result.append({
+                "name": name,
+                "enabled": False,
             })
     return result
 
@@ -590,6 +649,7 @@ def scan_all(
             skills_dir_framework=skills_dir_framework,
             schema=schema,
         ),
+        "plugins": scan_plugins(config_path=config_path, schema=schema),
         "channels": scan_channels(config_path=config_path, schema=schema),
         "cli_tools": scan_cli_tools(),
         "workspace_files": scan_workspace_files(
@@ -685,6 +745,12 @@ def _compute_diff(old: str, new: str) -> str:
                 if old_status.get(name) != new_status.get(name):
                     status_changed.append(name)
 
+        added_pl: list[str] = []
+        removed_pl: list[str] = []
+        if section == "Plugins":
+            added_pl = list(set(new_names) - set(old_names))
+            removed_pl = list(set(old_names) - set(new_names))
+
         parts: list[str] = []
         if added:
             label = "skill" if section == "Installed Skills" else "entry"
@@ -700,6 +766,10 @@ def _compute_diff(old: str, new: str) -> str:
             parts.append(
                 f"{len(status_changed)} skills changed status ({', '.join(status_changed)})"
             )
+        if added_pl:
+            parts.append(f"{len(added_pl)} plugin added ({', '.join(sorted(added_pl))})")
+        if removed_pl:
+            parts.append(f"{len(removed_pl)} plugin removed ({', '.join(sorted(removed_pl))})")
         if parts:
             changes.append("; ".join(parts))
 
@@ -779,9 +849,23 @@ def render_tools_md(data: dict, force: bool, workspace: str) -> str:
             icon = "✅ enabled"
         elif en == "false":
             icon = "❌ disabled"
+        elif en == "implicit":
+            icon = "— enabled (implicit)"
         else:
             icon = "— unknown"
         h(f"| {s['name']} | {icon} | {stem} |")
+    h("")
+    h("> Skills marked \"implicit\" are installed but not explicitly enabled in config.")
+    h("")
+
+    # --- Plugins ---
+    h("## Plugins")
+    h("")
+    h("| Plugin | Status |")
+    h("|--------|--------|")
+    for pl in data.get("plugins", []):
+        icon = "✅" if pl.get("enabled") else "❌"
+        h(f"| {pl['name']} | {icon} |")
     h("")
 
     # --- CLI Toolkit ---
@@ -908,17 +992,34 @@ def demo_summary(data: dict) -> str:
     skills = data.get("skills", [])
     enabled = [s for s in skills if s.get("enabled") == "true"]
     disabled = [s for s in skills if s.get("enabled") == "false"]
+    implicit = [s for s in skills if s.get("enabled") == "implicit"]
     unknown = [s for s in skills if s.get("enabled") == "unknown"]
     L.append(
-        f"Skills: {len(enabled)} enabled, {len(disabled)} disabled, "
-        f"{len(unknown)} unknown"
+        f"Skills: {len(enabled)} enabled, {len(implicit)} implicit, "
+        f"{len(disabled)} disabled, {len(unknown)} unknown"
     )
     for s in skills:
         en = s.get("enabled", "unknown")
-        icon = "+" if en == "true" else ("-" if en == "false" else "?")
+        if en == "true":
+            icon = "+"
+        elif en == "false":
+            icon = "-"
+        elif en == "implicit":
+            icon = "~"
+        else:
+            icon = "?"
         desc = s.get("description", "")[:60]
         L.append(f"  [{icon}] {s['name']:32s} {desc}")
     L.append("")
+
+    # Plugins
+    plugins = data.get("plugins", [])
+    if plugins:
+        L.append("Plugins:")
+        for pl in plugins:
+            icon = "+" if pl.get("enabled") else "-"
+            L.append(f"  [{icon}] {pl['name']}")
+        L.append("")
 
     # CLI tools
     available_cli = [t for t in data.get("cli_tools", []) if t.get("available")]
