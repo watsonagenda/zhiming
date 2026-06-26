@@ -38,7 +38,7 @@ AI Agent 存在**会话失忆**问题。每次新对话开始时，Agent 完全�
 
 ```bash
 # 克隆仓库到技能目录
-git clone https://github.com/YOUR_USERNAME/zhiming.git ~/.openclaw/skills/zhiming
+git clone https://github.com/watsonagenda/zhiming.git ~/.openclaw/skills/zhiming
 
 # 将 SKILL.md 复制到 zhiming 技能目录并启用
 cp ~/.openclaw/skills/zhiming/SKILL.md ~/.openclaw/skills/zhiming/SKILL.md

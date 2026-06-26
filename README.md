@@ -38,7 +38,7 @@ ZhiMing solves this by giving the agent **self-awareness** — a single source o
 
 ```bash
 # Clone the repository into your skills directory
-git clone https://github.com/YOUR_USERNAME/zhiming.git ~/.openclaw/skills/zhiming
+git clone https://github.com/watsonagenda/zhiming.git ~/.openclaw/skills/zhiming
 
 # Copy SKILL.md to the zhiming skill directory and enable it
 cp ~/.openclaw/skills/zhiming/SKILL.md ~/.openclaw/skills/zhiming/SKILL.md
